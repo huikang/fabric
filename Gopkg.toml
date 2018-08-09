@@ -135,6 +135,10 @@ ignored = [
   name = "github.com/onsi/ginkgo"
   revision = "a3b6351eb1ff8e1bfa30b2f55d7e282186ed8fee"
 
+[[constraint]]
+  branch = "master"
+  name = "github.com/btcsuite/btcd"
+
 [prune]
   go-tests = true
   unused-packages = true

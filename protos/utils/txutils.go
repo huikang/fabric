@@ -168,7 +168,8 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 		}
 
 		if bytes.Compare(a1, r.Payload) != 0 {
-			return nil, fmt.Errorf("ProposalResponsePayloads do not match")
+			//return nil, fmt.Errorf("ProposalResponsePayloads do not match")
+			return nil, fmt.Errorf("ProposalResponsePayloads do not match: Payload1: %s, Payload2: %s", a1, r.Payload)
 		}
 	}
 

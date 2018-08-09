@@ -65,6 +65,12 @@
   revision = "4c0e84591b9aa9e6dcfdf3e020114cd81f89d5f9"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/btcsuite/btcd"
+  packages = ["btcec"]
+  revision = "cf05f92c3f815bbd5091ed6c73eff51f7b1945e8"
+
+[[projects]]
   name = "github.com/cactus/go-statsd-client"
   packages = ["statsd"]
   revision = "138b925ccdf617776955904ba7759fce64406cec"
@@ -633,6 +639,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0b9967a9ce9370ccee1fb5c3880f03ffbad05c5dd1b39290568b62cd77a3dc20"
+  inputs-digest = "e4206cf29a543dbb54345522ee83d4df16055aadb5f1b078f94b8fe5a54c44f6"
   solver-name = "gps-cdcl"
   solver-version = 1

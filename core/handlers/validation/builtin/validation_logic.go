@@ -8,8 +8,11 @@ package builtin
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"math/big"
 	"regexp"
+	"strconv"
 
 	"github.com/hyperledger/fabric/core/chaincode/platforms/ccmetadata"
 
@@ -32,6 +35,79 @@ import (
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
+
+/////////////The flollowing are used for NIZK, todo: put them somewhere else later to be consistent with user chaincode
+type ECPointStr struct {
+	X, Y string
+}
+
+type pubkey struct {
+	Name   string     `json:"name"` //the fieldtags are needed to keep case from bouncing around
+	PubKey ECPointStr `json:"publickey"`
+}
+
+type pubkeys struct {
+	ObjectType string   `json:"docType"` //docType is used to distinguish the various types of objects in state database
+	Object     []pubkey `json:"keys"`
+}
+
+type randomNum struct {
+	Name    string `json:"name"` //the fieldtags are needed to keep case from bouncing around
+	RandNum string `json:"randomnumber"`
+}
+
+type randomNums struct {
+	ObjectType string      `json:"docType"` //docType is used to distinguish the various types of objects in state database
+	Object     []randomNum `json:"rnumbers"`
+	Ralpha     string      `json:"rAlpha"`
+	Rrho       string      `json:"rRho"`
+	ObjectV1   []string    `json:"rVector1"`
+	ObjectV2   []string    `json:"rVector2"`
+	Rtau1      string      `json:"rTau1"`
+	Rtau2      string      `json:"rTau2"`
+}
+
+type InnerProdArgStr struct {
+	L          []ECPointStr
+	R          []ECPointStr
+	A          string
+	B          string
+	Challenges []string
+}
+
+type RangeProofStr struct {
+	Comm ECPointStr
+	A    ECPointStr
+	S    ECPointStr
+	T1   ECPointStr
+	T2   ECPointStr
+	Tau  string
+	Th   string
+	Mu   string
+	IPP  InnerProdArgStr
+	// challenges
+	Cy string
+	Cz string
+	Cx string
+}
+
+type ZKElementStr struct {
+	Commitment, Token ECPointStr
+	RP                RangeProofStr
+	CommitPAll        ECPointStr
+}
+
+type zkelement struct {
+	Name      string       `json:"name"` //the fieldtags are needed to keep case from bouncing around
+	ZKElement ZKElementStr `json:"zkelement"`
+}
+
+type zkrow struct {
+	ObjectType string      `json:"docType"` //docType is used to distinguish the various types of objects in state database
+	Object     []zkelement `json:"elements"`
+}
+
+////////////
 
 var logger = flogging.MustGetLogger("vscc")
 
@@ -139,6 +215,13 @@ func (vscc *ValidatorOneValidSignature) Validate(envelopeBytes []byte, policyByt
 			err := vscc.ValidateLSCCInvocation(chdr.ChannelId, env, cap, payl, vscc.capabilities)
 			if err != nil {
 				logger.Errorf("VSCC error: ValidateLSCCInvocation failed, err %s", err)
+				return err
+			}
+		}
+		if hdrExt.ChaincodeId.Name == "mycc" {
+			err := vscc.ValidateCCInvocationNIZK(chdr.ChannelId, env, cap, payl, vscc.capabilities)
+			if err != nil {
+				logger.Errorf("VSCC error: ValidateCCInvocationNIZK failed, err %s", err)
 				return err
 			}
 		}
@@ -447,6 +530,244 @@ func (vscc *ValidatorOneValidSignature) validateRWSetAndCollection(
 	}
 
 	return nil
+}
+
+func convertECPStr(pcomStr ECPointStr) pb.ECPoint {
+	PCX := new(big.Int)
+	PCX, _ = PCX.SetString(pcomStr.X, 10) //10 is base
+	PCY := new(big.Int)
+	PCY, _ = PCY.SetString(pcomStr.Y, 10) //10 is base
+	pcom := pb.ECPoint{PCX, PCY}
+	return pcom
+}
+
+func convertECPStrArry(pcomStr []ECPointStr) []pb.ECPoint {
+	pcom := make([]pb.ECPoint, len(pcomStr))
+	for i := 0; i < len(pcomStr); i++ {
+		PCX := new(big.Int)
+		PCX, _ = PCX.SetString(pcomStr[i].X, 10) //10 is base
+		PCY := new(big.Int)
+		PCY, _ = PCY.SetString(pcomStr[i].Y, 10) //10 is base
+		pcom[i] = pb.ECPoint{PCX, PCY}
+	}
+	return pcom
+}
+
+func convertBIntStr(pStr string) *big.Int {
+	PCX := new(big.Int)
+	PCX, _ = PCX.SetString(pStr, 10) //10 is base
+	return PCX
+}
+
+func convertBIntStrArry(pStr []string) []*big.Int {
+	PArr := make([]*big.Int, len(pStr))
+	for i := 0; i < len(pStr); i++ {
+		PCX := new(big.Int)
+		PCX, _ = PCX.SetString(pStr[i], 10) //10 is base
+		PArr[i] = PCX
+	}
+	return PArr
+}
+
+func convertRPStr(rpStr RangeProofStr) pb.RangeProof {
+	rpp := pb.RangeProof{}
+	// rpStr := zkelement.ZKElement.RP
+	rpp.Comm = convertECPStr(rpStr.Comm)
+	rpp.A = convertECPStr(rpStr.A)
+	rpp.S = convertECPStr(rpStr.S)
+	rpp.T1 = convertECPStr(rpStr.T1)
+	rpp.T2 = convertECPStr(rpStr.T2)
+	rpp.Tau = convertBIntStr(rpStr.Tau)
+	rpp.Th = convertBIntStr(rpStr.Th)
+	rpp.Mu = convertBIntStr(rpStr.Mu)
+	rpp.Cy = convertBIntStr(rpStr.Cy)
+	rpp.Cz = convertBIntStr(rpStr.Cz)
+	rpp.Cx = convertBIntStr(rpStr.Cx)
+	ipp := pb.InnerProdArg{}
+	ipp.L = convertECPStrArry(rpStr.IPP.L)
+	ipp.R = convertECPStrArry(rpStr.IPP.R)
+	ipp.A = convertBIntStr(rpStr.IPP.A)
+	ipp.B = convertBIntStr(rpStr.IPP.B)
+	ipp.Challenges = convertBIntStrArry(rpStr.IPP.Challenges)
+	rpp.IPP = ipp
+	return rpp
+}
+
+func (vscc *ValidatorOneValidSignature) ValidateCCInvocationNIZK(
+	chid string,
+	env *common.Envelope,
+	cap *pb.ChaincodeActionPayload,
+	payl *common.Payload,
+	ac channelconfig.ApplicationCapabilities,
+) commonerrors.TxValidationError {
+	cpp, err := utils.GetChaincodeProposalPayload(cap.ChaincodeProposalPayload)
+	if err != nil {
+		logger.Errorf("VSCC error: GetChaincodeProposalPayload failed, err %s", err)
+		return policyErr(err)
+	}
+
+	cis := &pb.ChaincodeInvocationSpec{}
+	err = proto.Unmarshal(cpp.Input, cis)
+	if err != nil {
+		logger.Errorf("VSCC error: Unmarshal ChaincodeInvocationSpec failed, err %s", err)
+		return policyErr(err)
+	}
+
+	if cis.ChaincodeSpec == nil ||
+		cis.ChaincodeSpec.Input == nil ||
+		cis.ChaincodeSpec.Input.Args == nil {
+		logger.Errorf("VSCC error: committing invalid vscc invocation")
+		return policyErr(fmt.Errorf("malformed chaincode invocation spec"))
+	}
+
+	lsccFunc := string(cis.ChaincodeSpec.Input.Args[0])
+	// lsccArgs := cis.ChaincodeSpec.Input.Args[1:]
+
+	//logger.Debugf("VSCC info: ValidateLSCCInvocation acting on %s %#v", lsccFunc, lsccArgs)
+
+	switch lsccFunc {
+	case "invoke":
+		// logger.Debugf("VSCC info: validating invocation of lscc function %s on arguments %#v", lsccFunc, lsccArgs)
+		// if len(lsccArgs) < 2 {
+		// 	return policyErr(fmt.Errorf("Wrong number of arguments for invocation lscc(%s): expected at least 2, received %d", lsccFunc, len(lsccArgs)))
+		// }
+		// if (!ac.PrivateChannelData() && len(lsccArgs) > 5) ||
+		// 	(ac.PrivateChannelData() && len(lsccArgs) > 6) {
+		// 	return policyErr(fmt.Errorf("Wrong number of arguments for invocation lscc(%s): received %d", lsccFunc, len(lsccArgs)))
+		// }
+		// cdsArgs, err := utils.GetChaincodeDeploymentSpec(lsccArgs[1])
+		// if err != nil {
+		// 	return policyErr(fmt.Errorf("GetChaincodeDeploymentSpec error %s", err))
+		// }
+		//
+		// if cdsArgs == nil || cdsArgs.ChaincodeSpec == nil || cdsArgs.ChaincodeSpec.ChaincodeId == nil ||
+		// 	cap.Action == nil || cap.Action.ProposalResponsePayload == nil {
+		// 	return policyErr(fmt.Errorf("VSCC error: invocation of NIZK cc(%s) does not have appropriate arguments", lsccFunc))
+		// }
+
+		// get the rwset
+		pRespPayload, err := utils.GetProposalResponsePayload(cap.Action.ProposalResponsePayload)
+		if err != nil {
+			return policyErr(fmt.Errorf("GetProposalResponsePayload error %s", err))
+		}
+		if pRespPayload.Extension == nil {
+			return policyErr(fmt.Errorf("nil pRespPayload.Extension"))
+		}
+		respPayload, err := utils.GetChaincodeAction(pRespPayload.Extension)
+		if err != nil {
+			return policyErr(fmt.Errorf("GetChaincodeAction error %s", err))
+		}
+		txRWSet := &rwsetutil.TxRwSet{}
+		if err = txRWSet.FromProtoBytes(respPayload.Results); err != nil {
+			return policyErr(fmt.Errorf("txRWSet.FromProtoBytes error %s", err))
+		}
+
+		// extract the rwset for lscc
+		var ccrwset *kvrwset.KVRWSet
+		for _, ns := range txRWSet.NsRwSets {
+			// logger.Debugf("Namespace %s", ns.NameSpace)
+			if ns.NameSpace == "mycc" {
+				ccrwset = ns.KvRwSet
+				break
+			}
+			// logger.Info("Namespace ", ns.NameSpace)
+			// logger.Info("KvRwSet: ", ns.KvRwSet)
+		}
+		// var ccwset []*kvrwset.KVWrite
+		// var ccrset []*kvrwset.KVRead
+		// ccwset = ccrwset.Writes
+		// ccrset = ccrwset.Reads
+		txid := 0
+		for _, ccwset := range ccrwset.Writes {
+			if ccwset.Key == "TXID" {
+				txid, err = strconv.Atoi(string(ccwset.Value))
+				if err != nil {
+					return policyErr(fmt.Errorf("Invalid transaction ID, expecting a integer value"))
+				}
+				break
+			}
+		}
+		txname := "TX" + strconv.Itoa(txid)
+		var zkrow zkrow
+		for _, ccwset := range ccrwset.Writes {
+			if ccwset.Key == txname {
+				err = json.Unmarshal(ccwset.Value, &zkrow) //unmarshal it aka JSON.parse()
+				if err != nil {
+					return policyErr(fmt.Errorf("Cannot convert byte array to zkrow"))
+				}
+				break
+			}
+		}
+		logger.Info("Fabric-NIZK: Validating the Proof-of-Balance...")
+		PcommitMul := pb.ECPoint{big.NewInt(0), big.NewInt(0)}
+		for _, zkelement := range zkrow.Object {
+			pcomStr := zkelement.ZKElement.Commitment
+			// PCX := new(big.Int)
+			// PCX, _ = PCX.SetString(pcomStr.X, 10)//10 is base
+			// PCY := new(big.Int)
+			// PCY, _ = PCY.SetString(pcomStr.Y, 10)//10 is base
+			// pcom := pb.ECPoint{PCX, PCY}
+			pcom := convertECPStr(pcomStr)
+			PcommitMul = PcommitMul.Add(pcom)
+		}
+		if PcommitMul.X.Cmp(big.NewInt(0)) == 0 && PcommitMul.Y.Cmp(big.NewInt(0)) == 0 {
+			logger.Info("Fabric-NIZK: Valid balance!")
+		} else {
+			return policyErr(fmt.Errorf("Fabric-NIZK: Invalid balance!!!"))
+		}
+
+		logger.Info("Fabric-NIZK: Validating the Proof-of-Assets...")
+		for _, zkelement := range zkrow.Object {
+			rpp := convertRPStr(zkelement.ZKElement.RP)
+			if pb.RPVerify(rpp) {
+				logger.Info("Fabric-NIZK: Valid range proof!")
+			} else {
+				return policyErr(fmt.Errorf("Fabric-NIZK: Invalid range!!!"))
+			}
+			pcomStr := zkelement.ZKElement.Commitment
+			pcom := convertECPStr(pcomStr)
+			if rpp.Comm.X.Cmp(pcom.X) == 0 && rpp.Comm.Y.Cmp(pcom.Y) == 0 {
+				logger.Info("Fabric-NIZK: Valid assets!")
+				continue
+			} else {
+				//for convienence, we store the product of PC of preivously tx in the Write set,
+				//in reality, the peer should read from the ledger and compute itself
+				pcomStrP := zkelement.ZKElement.CommitPAll
+				pcomP := convertECPStr(pcomStrP)
+				if rpp.Comm.X.Cmp(pcomP.X) == 0 && rpp.Comm.Y.Cmp(pcomP.Y) == 0 {
+					logger.Info("Fabric-NIZK: Valid assets!")
+					continue
+				} else {
+					return policyErr(fmt.Errorf("Fabric-NIZK: Invalid assets!!!"))
+				}
+			}
+			// else {
+			// 	PcommitMul2 := pcom
+			// 	zkrows:= make([]zkrow,txid-1)
+			// 	for j := 0; j < txid; j++{
+			// 		for _, ccrset := range ccrwset.Reads {
+			// 			txnameP := "TX"+strconv.Itoa(j)
+			// 			if(ccrset.Key == txname){
+			// 				zkrows[j] = ccrset.Value
+			// 				break;
+			// 			}
+			// 		}
+			// 		pcomStrP := zkrows[j].Object[i].ZKElement.Commitment
+			// 		pcomP := convertECPStr(pcomStrP)
+			// 		PcommitMul2 = PcommitMul2.Add(pcomP)
+			// 	}
+			// 	if(rpp.Comm.X.Cmp(PcommitMul2.X) == 0 && rpp.Comm.Y.Cmp(PcommitMul2.Y) == 0){
+			// 		logger.Info("Fabric-NIZK: Valid assets!")
+			// 	} else {
+			// 		return policyErr(fmt.Errorf("Fabric-NIZK: Invalid assets!!!"))
+			// 	}
+			// }
+		}
+		// all is good!
+		return nil
+	default:
+		return nil
+	}
 }
 
 func (vscc *ValidatorOneValidSignature) ValidateLSCCInvocation(
